@@ -1,15 +1,18 @@
 package com.example.android.beacon.nearby
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.Log
 import android.widget.ArrayAdapter
 import android.widget.ListView
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.messages.*
-import java.util.ArrayList
 import com.google.android.gms.nearby.messages.MessageFilter
-
+import java.util.*
 
 
 class MainActivity : AppCompatActivity() {
@@ -18,8 +21,6 @@ class MainActivity : AppCompatActivity() {
 
     private var mMessageListener: MessageListener? = null
     private var mNearbyDevicesArrayAdapter : ArrayAdapter<String>? = null
-
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,15 +31,16 @@ class MainActivity : AppCompatActivity() {
                 super.onFound(message)
 
                 message?.let {
-                    Log.i(TAG, "Message found: $it")
-                    Log.i(TAG, "Message string:  ${it.content}")
-                    Log.i(TAG, "Message namespaced type: ${it.namespace} / ${it.type}")
 
-                    val status = details("Found Message", it)
+                    if(message.type == Message.MESSAGE_TYPE_I_BEACON_ID) {
+                        val iBeaconId = IBeaconId.from(message)
 
-                    Log.d(TAG, status)
+                        val status = details("Found beacon", iBeaconId)
 
-                    mNearbyDevicesArrayAdapter?.add(status)
+                        Log.d(TAG, status)
+
+                        mNearbyDevicesArrayAdapter?.add(status)
+                    }
                 }
 
             }
@@ -47,52 +49,19 @@ class MainActivity : AppCompatActivity() {
                 super.onLost(message)
 
                 message?.let {
-                    val status = details("Lost sight of message", it)
+                    if(message.type == Message.MESSAGE_TYPE_I_BEACON_ID) {
+                        val iBeaconId = IBeaconId.from(message)
 
-                    Log.d(TAG, status)
-                    mNearbyDevicesArrayAdapter?.add(status)
+                        val status = details("Lost sight of beacon", iBeaconId)
+                        Log.d(TAG, status)
+                        mNearbyDevicesArrayAdapter?.add(status)
+
+                    }
+
                 }
 
             }
 
-            override fun onBleSignalChanged(message: Message?, bleSignal: BleSignal?) {
-                super.onBleSignalChanged(message, bleSignal)
-
-                if(!SHOW_SIGNAL_CHANGED) return
-
-                message?.let {
-                    val status = details("Signal Changed", it)
-
-                    Log.i(TAG, status)
-
-                    mNearbyDevicesArrayAdapter?.add(
-                        "$status rssi=${bleSignal?.rssi} txPower=${bleSignal?.txPower}"
-                    )
-                }
-
-
-            }
-
-            override fun onDistanceChanged(message: Message?, distance: Distance?) {
-                super.onDistanceChanged(message, distance)
-
-                if(!SHOW_DISTANCE_CHANGED) return
-
-                message?.let {
-                    val status = details("Distance changed", it)
-
-                    Log.i(TAG, status)
-
-                    mNearbyDevicesArrayAdapter?.add(
-                        "$status accuracy=${distance?.accuracy}"
-                    )
-
-
-                }
-
-
-
-            }
         }
 
 
@@ -113,7 +82,15 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
 
-        subscribe()
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+            == PackageManager.PERMISSION_GRANTED) {
+            subscribe()
+        } else {
+                ActivityCompat.requestPermissions(this,
+                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                    MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION)
+        }
 
     }
 
@@ -127,7 +104,7 @@ class MainActivity : AppCompatActivity() {
     private fun subscribe() {
 
         val messageFilter = MessageFilter.Builder()
-            .includeNamespacedType(NAMESPACE, TYPE)
+            .includeIBeaconIds(UUID.fromString(IBEACON_UUID), null, null)
             .build()
 
         val options = SubscribeOptions.Builder()
@@ -141,14 +118,29 @@ class MainActivity : AppCompatActivity() {
             .setFilter(messageFilter)
             .build()
 
-        mMessageListener?.let {
-            Nearby.getMessagesClient(this).subscribe(it, options)
-            Log.i(TAG, "Subscription start")
-        }
+        Nearby.getMessagesClient(this).subscribe(mMessageListener!!, options)
+        Log.i(TAG, "Subscription start")
     }
 
-    private fun details(event: String, message: Message) : String {
-        return "$event: ${message.namespace}/${message.type}/${String(message.content)}"
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        when (requestCode) {
+            MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION -> {
+                if ((grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)) {
+                    subscribe()
+                } else {
+                    Log.w(TAG,"ACCESS_FINE_LOCATION Permission not granted")
+                }
+                return
+            }
+            else -> {
+            }
+        }
+
+
+    }
+
+    private fun details(event: String, iBeaconId: IBeaconId) : String {
+        return "$event: ${iBeaconId.proximityUuid}:${iBeaconId.major}:${iBeaconId.minor}"
     }
 
 
@@ -161,10 +153,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
-        const val NAMESPACE = "beacon-namespace"
-        const val TYPE = "message type"
-        const val SHOW_DISTANCE_CHANGED = false
-        const val SHOW_SIGNAL_CHANGED = false
+        const val IBEACON_UUID = "SET BEACON ID HERE"
+        const val MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION = 100
     }
 
 }
